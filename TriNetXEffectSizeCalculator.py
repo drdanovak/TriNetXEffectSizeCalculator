@@ -101,9 +101,10 @@ if add_forest and not results_df.empty:
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     y_pos = np.arange(len(results_df))
     effect = results_df['Effect Size']
+
     if add_ci and 'Lower CI (Effect Size)' in results_df.columns and 'Upper CI (Effect Size)' in results_df.columns:
-        lower_err = effect - results_df['Lower CI (Effect Size)']
-        upper_err = results_df['Upper CI (Effect Size)'] - effect
+        lower_err = (effect - results_df['Lower CI (Effect Size)']).clip(lower=0).fillna(0)
+        upper_err = (results_df['Upper CI (Effect Size)'] - effect).clip(lower=0).fillna(0)
         xerr = [lower_err, upper_err]
     else:
         xerr = None
