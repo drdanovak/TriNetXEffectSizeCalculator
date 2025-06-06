@@ -19,7 +19,7 @@ results_df['Effect Size'] = np.log(results_df['Risk, Odds, or Hazard Ratio']) * 
 
 st.markdown("### Calculated Effect Sizes Table")
 if not results_df.empty:
-    st.table(results_df.round(4))
+    st.table(results_df.round(4).reset_index(drop=True))  # <--- index removed here
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
