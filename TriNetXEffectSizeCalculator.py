@@ -1,16 +1,34 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit.components.v1 as components
 import matplotlib.pyplot as plt
+import streamlit.components.v1 as components
 
 st.title("Novak's TriNetX Effect Size Calculator")
 st.markdown("Calculate effect sizes from Risk Ratios, Odds Ratios, or Hazard Ratios (TriNetX outcomes).")
 
-# Feature selection
-add_p = st.checkbox("Add p-value column")
-add_ci = st.checkbox("Add confidence interval columns (for ratios and effect sizes)")
-add_forest = st.checkbox("Show forest plot of effect sizes")
+# --- Sidebar options ---
+st.sidebar.header("🛠️ Table and Plot Options")
+add_p = st.sidebar.checkbox("Add p-value column")
+add_ci = st.sidebar.checkbox("Add confidence interval columns (for ratios and effect sizes)")
+add_forest = st.sidebar.checkbox("Show forest plot of effect sizes")
+
+if add_forest:
+    st.sidebar.subheader("Forest Plot Settings")
+    forest_title = st.sidebar.text_input("Plot Title", "Effect Size Forest Plot")
+    dot_color = st.sidebar.color_picker("Dot Color", "#2a5599")
+    error_color = st.sidebar.color_picker("Error Bar Color", "#666666")
+    marker_size = st.sidebar.slider("Marker Size", 6, 30, 12)
+    error_width = st.sidebar.slider("Error Bar Width", 1, 5, 2)
+    show_hline = st.sidebar.checkbox("Show horizontal line at zero", True)
+    label_fontsize = st.sidebar.slider("Outcome Label Font Size", 8, 20, 12)
+    x_fontsize = st.sidebar.slider("X-axis Font Size", 8, 20, 12)
+    fig_width = st.sidebar.slider("Figure Width", 4, 12, 6)
+    fig_height = st.sidebar.slider("Figure Height", 3, 15, 4 + 1, help="Increase if you have many outcomes")
+    x_min = st.sidebar.number_input("X-axis minimum", value=-1.0, step=0.1)
+    x_max = st.sidebar.number_input("X-axis maximum", value=1.5, step=0.1)
+    show_grid = st.sidebar.checkbox("Show Grid Lines", False)
+    invert_y = st.sidebar.checkbox("Invert Y-axis", True)
 
 # Editable Table for Input
 columns = ['Outcome', 'Risk, Odds, or Hazard Ratio']
@@ -80,25 +98,39 @@ else:
 # Forest plot (if checked)
 if add_forest and not results_df.empty:
     st.markdown("### Forest Plot of Effect Sizes")
-    fig, ax = plt.subplots(figsize=(6, max(1.5, 0.6 * len(results_df))))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     y_pos = np.arange(len(results_df))
+    effect = results_df['Effect Size']
+    if add_ci and 'Lower CI (Effect Size)' in results_df.columns and 'Upper CI (Effect Size)' in results_df.columns:
+        lower_err = effect - results_df['Lower CI (Effect Size)']
+        upper_err = results_df['Upper CI (Effect Size)'] - effect
+        xerr = [lower_err, upper_err]
+    else:
+        xerr = None
+
     ax.errorbar(
-        results_df['Effect Size'],
+        effect,
         y_pos,
-        xerr=[
-            results_df['Effect Size'] - results_df.get('Lower CI (Effect Size)', results_df['Effect Size']),
-            results_df.get('Upper CI (Effect Size)', results_df['Effect Size']) - results_df['Effect Size']
-        ] if add_ci else None,
+        xerr=xerr,
         fmt='o',
-        color='black',
+        color=dot_color,
+        ecolor=error_color,
         capsize=5,
+        markersize=marker_size,
+        elinewidth=error_width,
     )
     ax.set_yticks(y_pos)
-    ax.set_yticklabels(results_df['Outcome'])
-    ax.axvline(0, color='grey', linestyle='--', lw=1)
-    ax.set_xlabel('Effect Size')
-    ax.set_ylabel('Outcome')
-    plt.gca().invert_yaxis()
+    ax.set_yticklabels(results_df['Outcome'], fontsize=label_fontsize)
+    if show_hline:
+        ax.axvline(0, color='grey', linestyle='--', lw=1)
+    ax.set_xlabel('Effect Size', fontsize=x_fontsize)
+    ax.set_ylabel('Outcome', fontsize=label_fontsize)
+    ax.set_xlim(x_min, x_max)
+    if invert_y:
+        ax.invert_yaxis()
+    if show_grid:
+        ax.grid(axis='x', linestyle='--', alpha=0.7)
+    ax.set_title(forest_title, fontsize=x_fontsize + 2)
     st.pyplot(fig)
 
 st.markdown("---")
