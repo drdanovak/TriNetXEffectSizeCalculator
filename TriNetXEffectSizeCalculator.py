@@ -40,8 +40,12 @@ if add_forest:
             marker_color = "black"
 
 # Editable Table for Input
-columns = ['Outcome', 'Risk, Odds, or Hazard Ratio']
-defaults = {"Outcome": [""], "Risk, Odds, or Hazard Ratio": [1.0]}
+columns = ['Outcome', 'Ratio Type', 'Ratio Value']
+defaults = {
+    "Outcome": [""],
+    "Ratio Type": ["Risk Ratio"],
+    "Ratio Value": [1.0]
+}
 if add_ci:
     columns += ['Lower CI (Ratio)', 'Upper CI (Ratio)']
     defaults['Lower CI (Ratio)'] = [""]
@@ -52,20 +56,27 @@ if add_p:
 
 df = pd.DataFrame({col: defaults[col] for col in columns})
 
-# Use st.data_editor with no dtype restrictions to allow any (pos/neg) values, and manually handle conversion
-edited_df = st.data_editor(df, num_rows="dynamic", key="input_table", use_container_width=True)
+# Editable table with ratio type dropdowns
+edited_df = st.data_editor(
+    df,
+    num_rows="dynamic",
+    use_container_width=True,
+    column_config={
+        "Ratio Type": st.column_config.SelectboxColumn(
+            "Ratio Type", options=["Risk Ratio", "Odds Ratio", "Hazard Ratio"], required=True
+        ),
+    },
+)
 
 # Compute effect size and (optionally) CIs
 results_df = edited_df.copy()
 results_df = results_df[results_df['Outcome'].astype(str).str.strip() != ""]
-results_df['Risk, Odds, or Hazard Ratio'] = pd.to_numeric(results_df['Risk, Odds, or Hazard Ratio'], errors='coerce')
-results_df['Effect Size'] = np.log(np.abs(results_df['Risk, Odds, or Hazard Ratio'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Risk, Odds, or Hazard Ratio'])
+results_df['Ratio Value'] = pd.to_numeric(results_df['Ratio Value'], errors='coerce')
+results_df['Effect Size'] = np.log(np.abs(results_df['Ratio Value'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Ratio Value'])
 
 if add_ci:
     results_df['Lower CI (Ratio)'] = pd.to_numeric(results_df['Lower CI (Ratio)'], errors='coerce')
     results_df['Upper CI (Ratio)'] = pd.to_numeric(results_df['Upper CI (Ratio)'], errors='coerce')
-    # CI for effect size is calculated by applying the formula to the CI bounds of the ratio
-    # Use np.abs to ensure log works for negative or positive ratios, keep sign
     results_df['Lower CI (Effect Size)'] = np.log(np.abs(results_df['Lower CI (Ratio)'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Lower CI (Ratio)'])
     results_df['Upper CI (Effect Size)'] = np.log(np.abs(results_df['Upper CI (Ratio)'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Upper CI (Ratio)'])
 
@@ -87,7 +98,8 @@ def ama_table_html(df, ci=False, pval=False):
     <table class="ama-table">
         <tr>
             <th>Outcome</th>
-            <th>Risk, Odds, or Hazard Ratio</th>"""
+            <th>Ratio Type</th>
+            <th>Ratio Value</th>"""
     if ci:
         html += "<th>Lower CI (Ratio)</th><th>Upper CI (Ratio)</th>"
     html += "<th>Effect Size</th>"
@@ -97,7 +109,11 @@ def ama_table_html(df, ci=False, pval=False):
         html += "<th>p-value</th>"
     html += "</tr>"
     for _, row in df.iterrows():
-        html += f"<tr><td class='left'>{row['Outcome']}</td><td>{row['Risk, Odds, or Hazard Ratio']}</td>"
+        html += (
+            f"<tr><td class='left'>{row['Outcome']}</td>"
+            f"<td>{row['Ratio Type']}</td>"
+            f"<td>{row['Ratio Value']}</td>"
+        )
         if ci:
             html += f"<td>{row.get('Lower CI (Ratio)','')}</td><td>{row.get('Upper CI (Ratio)','')}</td>"
         html += f"<td>{row['Effect Size']}</td>"
@@ -140,7 +156,6 @@ def generate_forest_plot(
     indent = "\u00A0" * 4
     group_mode = False
 
-    # For grouping: treat Outcome values starting with "##" as section headers
     for i, row in df.iterrows():
         if use_groups and isinstance(row["Outcome"], str) and row["Outcome"].startswith("##"):
             header = row["Outcome"][3:].strip()
@@ -156,7 +171,8 @@ def generate_forest_plot(
 
     fig, ax = plt.subplots(figsize=(10, max(3, len(y_labels) * 0.7)))
     # Safely handle possible missing/invalid CIs
-    if (df['Lower CI (Effect Size)'].notnull().any() and df['Upper CI (Effect Size)'].notnull().any()):
+    if (df.get('Lower CI (Effect Size)') is not None and df.get('Upper CI (Effect Size)') is not None and
+        df['Lower CI (Effect Size)'].notnull().any() and df['Upper CI (Effect Size)'].notnull().any()):
         ci_vals = pd.concat([df['Lower CI (Effect Size)'].dropna(), df['Upper CI (Effect Size)'].dropna()])
         x_min, x_max = ci_vals.min(), ci_vals.max()
         x_pad = (x_max - x_min) * (axis_padding / 100)
@@ -166,7 +182,6 @@ def generate_forest_plot(
         if row is None:
             continue
         effect = row["Effect Size"]
-        # Prefer effect size CIs, but fallback if not present
         lci = row.get("Lower CI (Effect Size)", None) if "Lower CI (Effect Size)" in row else None
         uci = row.get("Upper CI (Effect Size)", None) if "Upper CI (Effect Size)" in row else None
         if pd.notnull(effect) and pd.notnull(lci) and pd.notnull(uci):
@@ -176,9 +191,7 @@ def generate_forest_plot(
                 label = f"{effect:.2f} [{lci:.2f}, {uci:.2f}]"
                 ax.text(uci + label_offset, i, label, va='center', fontsize=font_size - 2)
 
-    # Reference line at 1
     ax.axvline(x=1, color='gray', linestyle='--', linewidth=1)
-    # Y-ticks and styling
     ax.set_yticks(range(len(y_labels)))
     for tick_label, style in zip(ax.set_yticklabels(y_labels), text_styles):
         if style == "bold":
