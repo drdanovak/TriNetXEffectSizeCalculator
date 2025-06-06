@@ -18,16 +18,38 @@ results_df = results_df[results_df['Outcome'].astype(str).str.strip() != ""]
 results_df['Effect Size'] = np.log(results_df['Risk, Odds, or Hazard Ratio']) * (np.sqrt(3) / np.pi)
 results_df = results_df.round(4)
 
+def ama_table_html(df):
+    if df.empty:
+        return ""
+    html = """
+    <style>
+    .ama-table { border-collapse:collapse; font-family:Arial,sans-serif; font-size:14px; }
+    .ama-table th, .ama-table td { border:1px solid #222; padding:6px 12px; }
+    .ama-table th { background:#f8f8f8; font-weight:bold; text-align:center; }
+    .ama-table td { text-align:right; }
+    .ama-table td.left { text-align:left; }
+    </style>
+    <table class="ama-table">
+        <tr>
+            <th>Outcome</th>
+            <th>Risk, Odds, or Hazard Ratio</th>
+            <th>Effect Size</th>
+        </tr>
+    """
+    for _, row in df.iterrows():
+        html += f"""
+        <tr>
+            <td class="left">{row['Outcome']}</td>
+            <td>{row['Risk, Odds, or Hazard Ratio']}</td>
+            <td>{row['Effect Size']}</td>
+        </tr>
+        """
+    html += "</table>"
+    return html
+
 st.markdown("### Calculated Effect Sizes Table")
 if not results_df.empty:
-    # Render as a markdown table (no index)
-    header = "| Outcome | Risk, Odds, or Hazard Ratio | Effect Size |"
-    separator = "|---|---|---|"
-    rows = [
-        f"| {row['Outcome']} | {row['Risk, Odds, or Hazard Ratio']} | {row['Effect Size']} |"
-        for _, row in results_df.iterrows()
-    ]
-    st.markdown("\n".join([header, separator] + rows))
+    st.markdown(ama_table_html(results_df), unsafe_allow_html=True)
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
