@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import streamlit.components.v1 as components
 
 st.title("Novak's TriNetX Effect Size Calculator")
 st.markdown("Calculate effect sizes from Risk Ratios, Odds Ratios, or Hazard Ratios (TriNetX outcomes).")
@@ -49,7 +50,7 @@ def ama_table_html(df):
 
 st.markdown("### Calculated Effect Sizes Table")
 if not results_df.empty:
-    st.markdown(ama_table_html(results_df), unsafe_allow_html=True)
+    components.html(ama_table_html(results_df), height=300, scrolling=True)
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
