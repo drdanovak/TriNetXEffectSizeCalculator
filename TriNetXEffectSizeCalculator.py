@@ -12,7 +12,7 @@ st.markdown("Calculate effect sizes from Risk Ratios, Odds Ratios, or Hazard Rat
 # --- Sidebar options ---
 st.sidebar.header("🛠️ Table and Plot Options")
 
-# 1. Ratio type selector (ensure it appears before other widgets)
+# Ratio type selector
 ratio_type = st.sidebar.selectbox(
     "Type of Ratio Used",
     ["Risk Ratio", "Odds Ratio", "Hazard Ratio"],
@@ -77,9 +77,11 @@ if add_ci:
 if add_p:
     results_df['p-value'] = pd.to_numeric(results_df['p-value'], errors='coerce')
 
-def ama_table_html(df, ratio_label="Risk Ratio", ci=False, pval=False):
+def ama_table_html(df, ratio_label="Risk Ratio", ci=False, pval=False, use_groups=True):
     if df.empty:
         return ""
+    # Count columns for colspan
+    col_count = 2 + (2 if ci else 0) + (2 if ci else 0) + (1 if pval else 0)
     html = f"""
     <style>
     .ama-table {{ border-collapse:collapse; font-family:Arial,sans-serif; font-size:14px; }}
@@ -87,6 +89,14 @@ def ama_table_html(df, ratio_label="Risk Ratio", ci=False, pval=False):
     .ama-table th {{ background:#f8f8f8; font-weight:bold; text-align:center; }}
     .ama-table td {{ text-align:right; }}
     .ama-table td.left {{ text-align:left; }}
+    .ama-section-header td {{
+        background:#e0e0e0;
+        font-weight:bold;
+        text-align:left;
+        border-top:2px solid #444;
+        border-bottom:2px solid #444;
+        font-size:15px;
+    }}
     </style>
     <table class="ama-table">
         <tr>
@@ -101,6 +111,11 @@ def ama_table_html(df, ratio_label="Risk Ratio", ci=False, pval=False):
         html += "<th>p-value</th>"
     html += "</tr>"
     for _, row in df.iterrows():
+        # Section header row support!
+        if use_groups and isinstance(row['Outcome'], str) and row['Outcome'].startswith("##"):
+            section_name = row['Outcome'][2:].strip()
+            html += f"<tr class='ama-section-header'><td colspan='{col_count}'>{section_name}</td></tr>"
+            continue
         html += f"<tr><td class='left'>{row['Outcome']}</td><td>{row[ratio_label]}</td>"
         if ci:
             html += f"<td>{row.get('Lower CI (Ratio)','')}</td><td>{row.get('Upper CI (Ratio)','')}</td>"
@@ -115,7 +130,17 @@ def ama_table_html(df, ratio_label="Risk Ratio", ci=False, pval=False):
 
 st.markdown("### Calculated Effect Sizes Table")
 if not results_df.empty:
-    components.html(ama_table_html(results_df.round(6), ratio_label=ratio_type, ci=add_ci, pval=add_p), height=350, scrolling=True)
+    components.html(
+        ama_table_html(
+            results_df.round(6), 
+            ratio_label=ratio_type, 
+            ci=add_ci, 
+            pval=add_p, 
+            use_groups=use_groups
+        ),
+        height=350,
+        scrolling=True
+    )
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
