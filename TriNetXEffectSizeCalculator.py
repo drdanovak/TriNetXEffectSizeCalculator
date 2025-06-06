@@ -32,25 +32,36 @@ if add_forest:
 
 # Editable Table for Input
 columns = ['Outcome', 'Risk, Odds, or Hazard Ratio']
+defaults = {"Outcome": [""], "Risk, Odds, or Hazard Ratio": [1.0]}
 if add_ci:
     columns += ['Lower CI (Ratio)', 'Upper CI (Ratio)']
+    defaults['Lower CI (Ratio)'] = [""]
+    defaults['Upper CI (Ratio)'] = [""]
 if add_p:
     columns += ['p-value']
-df = pd.DataFrame({col: [""] if 'Outcome' in col else [1.0] for col in columns})
+    defaults['p-value'] = [""]
+
+df = pd.DataFrame({col: defaults[col] for col in columns})
+
+# Use st.data_editor with no dtype restrictions to allow any (pos/neg) values, and manually handle conversion
 edited_df = st.data_editor(df, num_rows="dynamic", key="input_table")
 
 # Compute effect size and (optionally) CIs
 results_df = edited_df.copy()
 results_df = results_df[results_df['Outcome'].astype(str).str.strip() != ""]
 results_df['Risk, Odds, or Hazard Ratio'] = pd.to_numeric(results_df['Risk, Odds, or Hazard Ratio'], errors='coerce')
-results_df['Effect Size'] = np.log(results_df['Risk, Odds, or Hazard Ratio']) * (np.sqrt(3) / np.pi)
+results_df['Effect Size'] = np.log(np.abs(results_df['Risk, Odds, or Hazard Ratio'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Risk, Odds, or Hazard Ratio'])
 
 if add_ci:
     results_df['Lower CI (Ratio)'] = pd.to_numeric(results_df['Lower CI (Ratio)'], errors='coerce')
     results_df['Upper CI (Ratio)'] = pd.to_numeric(results_df['Upper CI (Ratio)'], errors='coerce')
     # CI for effect size is calculated by applying the formula to the CI bounds of the ratio
-    results_df['Lower CI (Effect Size)'] = np.log(results_df['Lower CI (Ratio)']) * (np.sqrt(3) / np.pi)
-    results_df['Upper CI (Effect Size)'] = np.log(results_df['Upper CI (Ratio)']) * (np.sqrt(3) / np.pi)
+    # Use np.abs to ensure log works for negative or positive ratios, keep sign
+    results_df['Lower CI (Effect Size)'] = np.log(np.abs(results_df['Lower CI (Ratio)'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Lower CI (Ratio)'])
+    results_df['Upper CI (Effect Size)'] = np.log(np.abs(results_df['Upper CI (Ratio)'])) * (np.sqrt(3) / np.pi) * np.sign(results_df['Upper CI (Ratio)'])
+
+if add_p:
+    results_df['p-value'] = pd.to_numeric(results_df['p-value'], errors='coerce')
 
 # Table display
 def ama_table_html(df, ci=False, pval=False):
@@ -91,7 +102,7 @@ def ama_table_html(df, ci=False, pval=False):
 
 st.markdown("### Calculated Effect Sizes Table")
 if not results_df.empty:
-    components.html(ama_table_html(results_df.round(4), ci=add_ci, pval=add_p), height=350, scrolling=True)
+    components.html(ama_table_html(results_df.round(6), ci=add_ci, pval=add_p), height=350, scrolling=True)
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
