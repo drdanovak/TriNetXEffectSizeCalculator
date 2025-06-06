@@ -14,12 +14,20 @@ edited_df = st.data_editor(df, num_rows="dynamic", key="input_table")
 
 # Compute Effect Size only for filled rows
 results_df = edited_df.copy()
-results_df = results_df[results_df['Outcome'].astype(str).str.strip() != ""]  # only non-empty rows
+results_df = results_df[results_df['Outcome'].astype(str).str.strip() != ""]
 results_df['Effect Size'] = np.log(results_df['Risk, Odds, or Hazard Ratio']) * (np.sqrt(3) / np.pi)
+results_df = results_df.round(4)
 
 st.markdown("### Calculated Effect Sizes Table")
 if not results_df.empty:
-    st.table(results_df.round(4).reset_index(drop=True))  # <--- index removed here
+    # Render as a markdown table (no index)
+    header = "| Outcome | Risk, Odds, or Hazard Ratio | Effect Size |"
+    separator = "|---|---|---|"
+    rows = [
+        f"| {row['Outcome']} | {row['Risk, Odds, or Hazard Ratio']} | {row['Effect Size']} |"
+        for _, row in results_df.iterrows()
+    ]
+    st.markdown("\n".join([header, separator] + rows))
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
