@@ -3,9 +3,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import streamlit.components.v1 as components
+import io
 
-st.title("Novak's TriNetX Effect Size Calculator")
-st.markdown("Calculate effect sizes from Risk Ratios, Odds Ratios, or Hazard Ratios (TriNetX outcomes).")
+st.set_page_config(layout="wide")
+st.title("Novak's TriNetX Effect Size Calculator and Forest Plot Generator")
+st.markdown("Calculate effect sizes from Risk Ratios, Odds Ratios, or Hazard Ratios (TriNetX outcomes), add p-values, confidence intervals, and create publication-quality forest plots—all in one app.")
 
 # --- Sidebar options ---
 st.sidebar.header("🛠️ Table and Plot Options")
@@ -13,22 +15,29 @@ add_p = st.sidebar.checkbox("Add p-value column")
 add_ci = st.sidebar.checkbox("Add confidence interval columns (for ratios and effect sizes)")
 add_forest = st.sidebar.checkbox("Show forest plot of effect sizes")
 
+# Forest plot options (in sidebar)
 if add_forest:
     st.sidebar.subheader("Forest Plot Settings")
-    forest_title = st.sidebar.text_input("Plot Title", "Effect Size Forest Plot")
-    dot_color = st.sidebar.color_picker("Dot Color", "#2a5599")
-    error_color = st.sidebar.color_picker("Error Bar Color", "#666666")
-    marker_size = st.sidebar.slider("Marker Size", 6, 30, 12)
-    error_width = st.sidebar.slider("Error Bar Width", 1, 5, 2)
-    show_hline = st.sidebar.checkbox("Show horizontal line at zero", True)
-    label_fontsize = st.sidebar.slider("Outcome Label Font Size", 8, 20, 12)
-    x_fontsize = st.sidebar.slider("X-axis Font Size", 8, 20, 12)
-    fig_width = st.sidebar.slider("Figure Width", 4, 12, 6)
-    fig_height = st.sidebar.slider("Figure Height", 3, 15, 4 + 1, help="Increase if you have many outcomes")
-    x_min = st.sidebar.number_input("X-axis minimum", value=-1.0, step=0.1)
-    x_max = st.sidebar.number_input("X-axis maximum", value=1.5, step=0.1)
-    show_grid = st.sidebar.checkbox("Show Grid Lines", False)
-    invert_y = st.sidebar.checkbox("Invert Y-axis", True)
+    plot_title = st.sidebar.text_input("Plot Title", "Forest Plot")
+    x_axis_label = st.sidebar.text_input("X-axis Label", "Effect Size (RR / OR / HR)")
+    show_grid = st.sidebar.checkbox("Show Grid", value=True)
+    show_values = st.sidebar.checkbox("Show Numerical Annotations", value=False)
+    use_groups = st.sidebar.checkbox("Treat rows starting with '##' as section headers", value=True)
+    with st.sidebar.expander("🎨 Advanced Visual Controls", expanded=False):
+        color_scheme = st.selectbox("Color Scheme", ["Color", "Black & White"])
+        point_size = st.slider("Marker Size", 6, 20, 10)
+        line_width = st.slider("CI Line Width", 1, 4, 2)
+        font_size = st.slider("Font Size", 10, 20, 12)
+        label_offset = st.slider("Label Horizontal Offset", 0.01, 0.3, 0.05)
+        use_log = st.checkbox("Use Log Scale for X-axis", value=False)
+        axis_padding = st.slider("X-axis Padding (%)", 2, 40, 10)
+        y_axis_padding = st.slider("Y-axis Padding (Rows)", 0.0, 5.0, 1.0, step=0.5)
+        if color_scheme == "Color":
+            ci_color = st.color_picker("CI Color", "#1f77b4")
+            marker_color = st.color_picker("Point Color", "#d62728")
+        else:
+            ci_color = "black"
+            marker_color = "black"
 
 # Editable Table for Input
 columns = ['Outcome', 'Risk, Odds, or Hazard Ratio']
@@ -44,7 +53,7 @@ if add_p:
 df = pd.DataFrame({col: defaults[col] for col in columns})
 
 # Use st.data_editor with no dtype restrictions to allow any (pos/neg) values, and manually handle conversion
-edited_df = st.data_editor(df, num_rows="dynamic", key="input_table")
+edited_df = st.data_editor(df, num_rows="dynamic", key="input_table", use_container_width=True)
 
 # Compute effect size and (optionally) CIs
 results_df = edited_df.copy()
@@ -106,44 +115,113 @@ if not results_df.empty:
 else:
     st.info("Enter at least one Outcome and Ratio to see results.")
 
-# Forest plot (if checked)
-if add_forest and not results_df.empty:
-    st.markdown("### Forest Plot of Effect Sizes")
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    y_pos = np.arange(len(results_df))
-    effect = results_df['Effect Size']
+# --- Forest Plot Generation ---
+def generate_forest_plot(
+    df,
+    plot_title="Forest Plot",
+    x_axis_label="Effect Size (RR / OR / HR)",
+    show_grid=True,
+    show_values=False,
+    use_groups=True,
+    color_scheme="Color",
+    point_size=10,
+    line_width=2,
+    font_size=12,
+    label_offset=0.05,
+    use_log=False,
+    axis_padding=10,
+    y_axis_padding=1.0,
+    ci_color="#1f77b4",
+    marker_color="#d62728"
+):
+    rows = []
+    y_labels = []
+    text_styles = []
+    indent = "\u00A0" * 4
+    group_mode = False
 
-    if add_ci and 'Lower CI (Effect Size)' in results_df.columns and 'Upper CI (Effect Size)' in results_df.columns:
-        lower_err = (effect - results_df['Lower CI (Effect Size)']).clip(lower=0).fillna(0)
-        upper_err = (results_df['Upper CI (Effect Size)'] - effect).clip(lower=0).fillna(0)
-        xerr = [lower_err, upper_err]
-    else:
-        xerr = None
+    # For grouping: treat Outcome values starting with "##" as section headers
+    for i, row in df.iterrows():
+        if use_groups and isinstance(row["Outcome"], str) and row["Outcome"].startswith("##"):
+            header = row["Outcome"][3:].strip()
+            y_labels.append(header)
+            text_styles.append("bold")
+            rows.append(None)
+            group_mode = True
+        else:
+            display_name = f"{indent}{row['Outcome']}" if group_mode else row["Outcome"]
+            y_labels.append(display_name)
+            text_styles.append("normal")
+            rows.append(row)
 
-    ax.errorbar(
-        effect,
-        y_pos,
-        xerr=xerr,
-        fmt='o',
-        color=dot_color,
-        ecolor=error_color,
-        capsize=5,
-        markersize=marker_size,
-        elinewidth=error_width,
-    )
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(results_df['Outcome'], fontsize=label_fontsize)
-    if show_hline:
-        ax.axvline(0, color='grey', linestyle='--', lw=1)
-    ax.set_xlabel('Effect Size', fontsize=x_fontsize)
-    ax.set_ylabel('Outcome', fontsize=label_fontsize)
-    ax.set_xlim(x_min, x_max)
-    if invert_y:
-        ax.invert_yaxis()
+    fig, ax = plt.subplots(figsize=(10, max(3, len(y_labels) * 0.7)))
+    # Safely handle possible missing/invalid CIs
+    if (df['Lower CI (Effect Size)'].notnull().any() and df['Upper CI (Effect Size)'].notnull().any()):
+        ci_vals = pd.concat([df['Lower CI (Effect Size)'].dropna(), df['Upper CI (Effect Size)'].dropna()])
+        x_min, x_max = ci_vals.min(), ci_vals.max()
+        x_pad = (x_max - x_min) * (axis_padding / 100)
+        ax.set_xlim(x_min - x_pad, x_max + x_pad)
+
+    for i, row in enumerate(rows):
+        if row is None:
+            continue
+        effect = row["Effect Size"]
+        # Prefer effect size CIs, but fallback if not present
+        lci = row.get("Lower CI (Effect Size)", None) if "Lower CI (Effect Size)" in row else None
+        uci = row.get("Upper CI (Effect Size)", None) if "Upper CI (Effect Size)" in row else None
+        if pd.notnull(effect) and pd.notnull(lci) and pd.notnull(uci):
+            ax.hlines(i, xmin=lci, xmax=uci, color=ci_color, linewidth=line_width, capstyle='round')
+            ax.plot(effect, i, 'o', color=marker_color, markersize=point_size)
+            if show_values:
+                label = f"{effect:.2f} [{lci:.2f}, {uci:.2f}]"
+                ax.text(uci + label_offset, i, label, va='center', fontsize=font_size - 2)
+
+    # Reference line at 1
+    ax.axvline(x=1, color='gray', linestyle='--', linewidth=1)
+    # Y-ticks and styling
+    ax.set_yticks(range(len(y_labels)))
+    for tick_label, style in zip(ax.set_yticklabels(y_labels), text_styles):
+        if style == "bold":
+            tick_label.set_fontweight("bold")
+        tick_label.set_fontsize(font_size)
+
+    if use_log:
+        ax.set_xscale('log')
     if show_grid:
-        ax.grid(axis='x', linestyle='--', alpha=0.7)
-    ax.set_title(forest_title, fontsize=x_fontsize + 2)
-    st.pyplot(fig)
+        ax.grid(True, axis='x', linestyle=':', linewidth=0.6)
+    else:
+        ax.grid(False)
+
+    ax.set_ylim(len(y_labels) - 1 + y_axis_padding, -1 - y_axis_padding)
+    ax.set_xlabel(x_axis_label, fontsize=font_size)
+    ax.set_title(plot_title, fontsize=font_size + 2, weight='bold')
+    fig.tight_layout()
+    return fig
+
+if add_forest and not results_df.empty and add_ci:
+    if st.button("📊 Generate Forest Plot"):
+        fig = generate_forest_plot(
+            results_df,
+            plot_title=plot_title,
+            x_axis_label=x_axis_label,
+            show_grid=show_grid,
+            show_values=show_values,
+            use_groups=use_groups,
+            color_scheme=color_scheme,
+            point_size=point_size,
+            line_width=line_width,
+            font_size=font_size,
+            label_offset=label_offset,
+            use_log=use_log,
+            axis_padding=axis_padding,
+            y_axis_padding=y_axis_padding,
+            ci_color=ci_color,
+            marker_color=marker_color,
+        )
+        st.pyplot(fig)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=300)
+        st.download_button("📥 Download Plot as PNG", data=buf.getvalue(), file_name="forest_plot.png", mime="image/png")
 
 st.markdown("---")
 st.markdown(
